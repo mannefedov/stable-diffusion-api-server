@@ -10,6 +10,13 @@ from io import BytesIO
 
 import torch
 import diffusers
+import datetime
+import time
+import random
+import os
+
+from flask import send_from_directory
+from flask import url_for
 
 
 ##################################################
@@ -82,7 +89,10 @@ class EngineStableDiffusion(Engine):
 
     def process(self, kwargs):
         output = self.engine( **kwargs )
-        return {'image': output.images[0]}
+        return {
+            'image': output.images[0],
+            # 'nsfw':output.nsfw_content_detected[0]
+         }
 
 class EngineManager(object):
     def __init__(self):
@@ -165,6 +175,22 @@ def stable_masking():
 def stable_custom(model):
     return _generate('txt2img', model)
 
+@app.route('/images/<path:path>')
+def send_image(path):
+    return send_from_directory('images', path)
+
+def generateImageName(batch_index):
+    timestamp = str(round(time.time() * 1000))
+    random_number = random.randint(0, 100000)
+    return str(batch_index) + '-' + timestamp + '-' + str(random_number) + '.png'
+
+def saveImageAndReturnPath(batch_index, base64String):
+    name = generateImageName(batch_index)
+    with open('./images/' + name, "wb") as fh:
+        fh.write(base64.b64decode(base64String))
+    return url_for('send_image', path=name)
+
+
 def _generate(task, engine=None):
     # Retrieve engine:
     if engine == None:
@@ -189,7 +215,7 @@ def _generate(task, engine=None):
             prompt = flask.request.form[ 'prompt' ]
             args_dict = {
                 'prompt' : [ prompt ],
-                'num_inference_steps' : retrieve_param( 'num_inference_steps', flask.request.form, int,   30 ),
+                'num_inference_steps' : retrieve_param( 'num_inference_steps', flask.request.form, int,   50 ),
                 'guidance_scale' : retrieve_param( 'guidance_scale', flask.request.form, float, 7.5 ),
                 'eta' : retrieve_param( 'eta', flask.request.form, float, 0.0 ),
                 'generator' : generator
@@ -197,12 +223,11 @@ def _generate(task, engine=None):
             if (task == 'txt2img'):
                 args_dict[ 'width' ] = retrieve_param( 'width', flask.request.form, int,   512 )
                 args_dict[ 'height' ] = retrieve_param( 'height', flask.request.form, int,   512 )
-            
             if (task == 'img2img' or task == 'masking'):
-                init_img_b64 = flask.request.form[ 'init_image' ]
+                init_img_b64 = flask.request.form[ 'image' ]
                 init_img_b64 = re.sub( '^data:image/png;base64,', '', init_img_b64 )
                 init_img_pil = b64_to_pil( init_img_b64 )
-                args_dict[ 'init_image' ] = init_img_pil
+                args_dict[ 'image' ] = init_img_pil
                 args_dict[ 'strength' ] = retrieve_param( 'strength', flask.request.form, float, 0.7 )
             if (task == 'masking'):
                 mask_img_b64 = flask.request.form[ 'mask_image' ]
@@ -211,17 +236,19 @@ def _generate(task, engine=None):
                 args_dict[ 'mask_image' ] = mask_img_pil
             # Perform inference:
             pipeline_output = engine.process( args_dict )
-
             pipeline_output[ 'seed' ] = new_seed
             total_results.append( pipeline_output )
         # Prepare response
         output_data[ 'status' ] = 'success'
         images = []
-        for result in total_results:
+        for idx, result in enumerate(total_results):
+            imagePath = saveImageAndReturnPath(idx, pil_to_b64( result['image'].convert( 'RGB' ) ))
             images.append({
-                'base64' : pil_to_b64( result['image'].convert( 'RGB' ) ),
+                'serverPath': imagePath,
+                # 'base64' : pil_to_b64( result['image'].convert( 'RGB' ) ),
                 'seed' : result['seed'],
-                'mime_type': 'image/png'
+                'mime_type': 'image/png',
+                # 'nsfw': result['nsfw']
             })
         output_data[ 'images' ] = images        
     except RuntimeError as e:
