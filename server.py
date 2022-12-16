@@ -89,10 +89,11 @@ class EngineStableDiffusion(Engine):
 
     def process(self, kwargs):
         output = self.engine( **kwargs )
-        return {
-            'image': output.images[0],
-            # 'nsfw':output.nsfw_content_detected[0]
-         }
+        return output.images
+        # return {
+        #     'image': output.images[0],
+        #     # 'nsfw':output.nsfw_content_detected[0]
+        #  }
 
 class EngineManager(object):
     def __init__(self):
@@ -206,47 +207,47 @@ def _generate(task, engine=None):
         seed = retrieve_param( 'seed', flask.request.form, int, 0 )
         count = retrieve_param( 'num_outputs', flask.request.form, int,   1 )
         total_results = []
-        for i in range( count ):
-            if (seed == 0):
-                generator = torch.Generator( device=get_compute_platform('generator') )
-            else:
-                generator = torch.Generator( device=get_compute_platform('generator') ).manual_seed( seed )
-            new_seed = generator.seed()
-            prompt = flask.request.form[ 'prompt' ]
-            args_dict = {
-                'prompt' : [ prompt ],
-                'num_inference_steps' : retrieve_param( 'num_inference_steps', flask.request.form, int,   50 ),
-                'guidance_scale' : retrieve_param( 'guidance_scale', flask.request.form, float, 7.5 ),
-                'eta' : retrieve_param( 'eta', flask.request.form, float, 0.0 ),
-                'generator' : generator
-            }
-            if (task == 'txt2img'):
-                args_dict[ 'width' ] = retrieve_param( 'width', flask.request.form, int,   512 )
-                args_dict[ 'height' ] = retrieve_param( 'height', flask.request.form, int,   512 )
-            if (task == 'img2img' or task == 'masking'):
-                init_img_b64 = flask.request.form[ 'image' ]
-                init_img_b64 = re.sub( '^data:image/png;base64,', '', init_img_b64 )
-                init_img_pil = b64_to_pil( init_img_b64 )
-                args_dict[ 'image' ] = init_img_pil
-                args_dict[ 'strength' ] = retrieve_param( 'strength', flask.request.form, float, 0.7 )
-            if (task == 'masking'):
-                mask_img_b64 = flask.request.form[ 'mask_image' ]
-                mask_img_b64 = re.sub( '^data:image/png;base64,', '', mask_img_b64 )
-                mask_img_pil = b64_to_pil( mask_img_b64 )
-                args_dict[ 'mask_image' ] = mask_img_pil
-            # Perform inference:
-            pipeline_output = engine.process( args_dict )
-            pipeline_output[ 'seed' ] = new_seed
-            total_results.append( pipeline_output )
+        
+        if (seed == 0):
+            generator = torch.Generator( device=get_compute_platform('generator') )
+        else:
+            generator = torch.Generator( device=get_compute_platform('generator') ).manual_seed( seed )
+        new_seed = generator.seed()
+        prompt = flask.request.form[ 'prompt' ]
+        args_dict = {
+            'prompt' : [ prompt ] * count,
+            'num_inference_steps' : retrieve_param( 'num_inference_steps', flask.request.form, int,   100 ),
+            'guidance_scale' : retrieve_param( 'guidance_scale', flask.request.form, float, 7.5 ),
+            'eta' : retrieve_param( 'eta', flask.request.form, float, 0.0 ),
+            'generator' : generator
+        }
+        if (task == 'txt2img'):
+            args_dict[ 'width' ] = retrieve_param( 'width', flask.request.form, int,   512 )
+            args_dict[ 'height' ] = retrieve_param( 'height', flask.request.form, int,   512 )
+        if (task == 'img2img' or task == 'masking'):
+            init_img_b64 = flask.request.form[ 'image' ]
+            init_img_b64 = re.sub( '^data:image/png;base64,', '', init_img_b64 )
+            init_img_pil = b64_to_pil( init_img_b64 )
+            args_dict[ 'image' ] = init_img_pil
+            args_dict[ 'strength' ] = retrieve_param( 'strength', flask.request.form, float, 0.7 )
+        if (task == 'masking'):
+            mask_img_b64 = flask.request.form[ 'mask_image' ]
+            mask_img_b64 = re.sub( '^data:image/png;base64,', '', mask_img_b64 )
+            mask_img_pil = b64_to_pil( mask_img_b64 )
+            args_dict[ 'mask_image' ] = mask_img_pil
+        # Perform inference:
+        pipeline_output = engine.process( args_dict )
+        # pipeline_output[ 'seed' ] = new_seed
+        total_results.append( pipeline_output )
         # Prepare response
         output_data[ 'status' ] = 'success'
         images = []
-        for idx, result in enumerate(total_results):
+        for idx, result in enumerate(pipeline_output.images):
             imagePath = saveImageAndReturnPath(idx, pil_to_b64( result['image'].convert( 'RGB' ) ))
             images.append({
                 'serverPath': imagePath,
                 # 'base64' : pil_to_b64( result['image'].convert( 'RGB' ) ),
-                'seed' : result['seed'],
+                # 'seed' : result['seed'],
                 'mime_type': 'image/png',
                 # 'nsfw': result['nsfw']
             })
