@@ -243,7 +243,7 @@ def _generate(task, engine=None):
         output_data[ 'status' ] = 'success'
         images = []
         for idx, result in enumerate(pipeline_output):
-            imagePath = saveImageAndReturnPath(idx, pil_to_b64( result['image'].convert( 'RGB' ) ))
+            imagePath = saveImageAndReturnPath(idx, pil_to_b64( result.convert( 'RGB' ) ))
             images.append({
                 'serverPath': imagePath,
                 # 'base64' : pil_to_b64( result['image'].convert( 'RGB' ) ),
